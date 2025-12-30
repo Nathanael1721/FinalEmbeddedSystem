@@ -74,6 +74,21 @@ CONF_THRESH = 0.70
 FRAMES_TO_CHECK = 10
 DETECTION_TIMEOUT_S = 3.0
 
+# =========================
+# System Status Tracking
+# =========================
+system_status = {
+    "door_status": "CLOSED",  # CLOSED, OPEN
+    "last_detection": "None",  # None, silver_car, etc.
+    "detection_confidence": 0.0,
+    "last_detection_time": None,
+    "mqtt_connected": False,
+    "total_detections": 0,
+    "access_granted": 0,
+    "access_denied": 0,
+}
+status_lock = threading.Lock()
+
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 REPO_ROOT = os.path.abspath(os.path.join(BASE_DIR, ".."))
 MODEL_PATH = os.path.join(REPO_ROOT, "server", "best.pt")
@@ -310,6 +325,7 @@ else:
 # MQTT + Detection Worker
 # =========================
 def detection_worker(client: mqtt.Client):
+    global system_status
     while True:
         item = trigger_q.get()
         if item is None:
@@ -347,6 +363,9 @@ def detection_worker(client: mqtt.Client):
             status = {"gate": "DENIED", "seq": seq, "reason": "no_frame", "ts": int(time.time())}
             client.publish(TOPIC_STATUS, json.dumps(status), qos=0)
             add_log("DENIED (no_frame)")
+            with status_lock:
+                system_status["total_detections"] += 1
+                system_status["access_denied"] += 1
             trigger_q.task_done()
             continue
 
@@ -354,11 +373,25 @@ def detection_worker(client: mqtt.Client):
             cmd = {"cmd": "OPEN", "seq": seq, "ts": int(time.time())}
             client.publish(TOPIC_CMD, json.dumps(cmd), qos=1)
             add_log(f"OPEN sent (seq={seq}, conf={best_conf:.2f})")
+            with status_lock:
+                system_status["door_status"] = "OPEN"
+                system_status["last_detection"] = best_class
+                system_status["detection_confidence"] = best_conf
+                system_status["last_detection_time"] = datetime.now().isoformat(timespec="seconds")
+                system_status["total_detections"] += 1
+                system_status["access_granted"] += 1
         else:
             reason = f"{best_class}:{best_conf:.2f}"
             status = {"gate": "DENIED", "seq": seq, "reason": reason, "ts": int(time.time())}
             client.publish(TOPIC_STATUS, json.dumps(status), qos=0)
             add_log(f"DENIED (seq={seq}, reason={reason})")
+            with status_lock:
+                system_status["door_status"] = "CLOSED"
+                system_status["last_detection"] = best_class if best_class else "None"
+                system_status["detection_confidence"] = best_conf
+                system_status["last_detection_time"] = datetime.now().isoformat(timespec="seconds")
+                system_status["total_detections"] += 1
+                system_status["access_denied"] += 1
 
         trigger_q.task_done()
 
@@ -366,6 +399,8 @@ def detection_worker(client: mqtt.Client):
 def on_connect(client, userdata, flags, rc):
     client.subscribe(TOPIC_TRIGGER, qos=0)
     add_log(f"MQTT connected rc={rc}")
+    with status_lock:
+        system_status["mqtt_connected"] = True
 
 
 def on_message(client, userdata, msg):
@@ -478,6 +513,20 @@ def status():
         "model_loaded": model is not None,
         "model_error": model_load_error
     })
+
+
+@app.route("/system_status")
+def system_status_endpoint():
+    """Return system status including door, detection, and MQTT status"""
+    with status_lock:
+        status_copy = system_status.copy()
+
+    # Add additional system info
+    status_copy["model_loaded"] = model is not None
+    status_copy["stream_active"] = is_stream_active()
+    status_copy["camera_index"] = get_camera_index()
+
+    return jsonify(status_copy)
 
 
 @app.route("/cameras")

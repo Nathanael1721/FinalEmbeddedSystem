@@ -14,6 +14,48 @@
     th { text-align: left; position: sticky; top: 0; background: #fff; }
     .log-wrap { max-height: 70vh; overflow: auto; }
     .muted { color: #666; font-size: 12px; }
+
+    /* Status Section Styles */
+    .status-section {
+      margin-bottom: 16px;
+    }
+    .status-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 12px;
+    }
+    .status-item {
+      background: #f8f9fa;
+      border-radius: 8px;
+      padding: 12px;
+      border-left: 4px solid #6c757d;
+    }
+    .status-item h3 {
+      margin: 0 0 6px 0;
+      font-size: 11px;
+      text-transform: uppercase;
+      color: #666;
+      letter-spacing: 0.5px;
+    }
+    .status-value {
+      margin: 0;
+      font-size: 18px;
+      font-weight: 600;
+      color: #333;
+    }
+    .status-item.door-open { border-left-color: #28a745; }
+    .status-item.door-open .status-value { color: #28a745; }
+    .status-item.door-closed { border-left-color: #dc3545; }
+    .status-item.door-closed .status-value { color: #dc3545; }
+    .status-item.status-ok { border-left-color: #28a745; }
+    .status-item.status-ok .status-value { color: #28a745; }
+    .status-item.status-error { border-left-color: #dc3545; }
+    .status-item.status-error .status-value { color: #dc3545; }
+    .status-item.status-neutral { border-left-color: #6c757d; }
+    .confidence-high { color: #28a745; }
+    .confidence-medium { color: #ffc107; }
+    .confidence-low { color: #dc3545; }
+    .timestamp { font-size: 11px; color: #888; margin-top: 4px; }
   </style>
 </head>
 <body>
@@ -33,6 +75,42 @@
 
     <div class="card">
       <h2>Actionlog</h2>
+
+      <!-- System Status Section -->
+      <div class="status-section">
+        <div class="status-grid">
+          <div class="status-item door-closed" id="statusDoor">
+            <h3>Door Status</h3>
+            <p class="status-value" id="doorStatus">--</p>
+          </div>
+          <div class="status-item status-neutral" id="statusDetection">
+            <h3>Last Detection</h3>
+            <p class="status-value" id="lastDetection">--</p>
+            <div class="timestamp" id="detectionTime"></div>
+          </div>
+          <div class="status-item status-neutral" id="statusConfidence">
+            <h3>Confidence</h3>
+            <p class="status-value" id="detectionConfidence">--%</p>
+          </div>
+          <div class="status-item status-neutral" id="statusMqtt">
+            <h3>MQTT Status</h3>
+            <p class="status-value" id="mqttStatus">--</p>
+          </div>
+          <div class="status-item status-neutral" id="statsTotal">
+            <h3>Total Detections</h3>
+            <p class="status-value" id="totalDetections">0</p>
+          </div>
+          <div class="status-item status-neutral" id="statsGranted">
+            <h3>Access Granted</h3>
+            <p class="status-value" id="accessGranted">0</p>
+          </div>
+          <div class="status-item status-neutral" id="statsDenied">
+            <h3>Access Denied</h3>
+            <p class="status-value" id="accessDenied">0</p>
+          </div>
+        </div>
+      </div>
+
       <div class="log-wrap">
         <table>
           <thead>
@@ -140,6 +218,102 @@
     document.getElementById("cameraSelect").addEventListener("change", (e) => {
       setCamera(e.target.value);
     });
+
+    async function refreshSystemStatus() {
+      try {
+        const res = await fetch("/system_status", { cache: "no-store" });
+        const data = await res.json();
+
+        // Update Door Status
+        const doorStatus = document.getElementById("doorStatus");
+        const statusDoor = document.getElementById("statusDoor");
+        doorStatus.textContent = data.door_status || "--";
+        statusDoor.classList.remove("door-open", "door-closed", "status-neutral");
+        if (data.door_status === "OPEN") {
+          statusDoor.classList.add("door-open");
+        } else if (data.door_status === "CLOSED") {
+          statusDoor.classList.add("door-closed");
+        } else {
+          statusDoor.classList.add("status-neutral");
+        }
+
+        // Update Last Detection
+        const lastDetection = document.getElementById("lastDetection");
+        const detectionTime = document.getElementById("detectionTime");
+        const statusDetection = document.getElementById("statusDetection");
+        lastDetection.textContent = data.last_detection || "--";
+
+        if (data.last_detection_time) {
+          const time = new Date(data.last_detection_time);
+          detectionTime.textContent = "Last: " + time.toLocaleTimeString();
+        } else {
+          detectionTime.textContent = "";
+        }
+
+        statusDetection.classList.remove("status-ok", "status-neutral");
+        if (data.last_detection && data.last_detection !== "None") {
+          statusDetection.classList.add("status-ok");
+        } else {
+          statusDetection.classList.add("status-neutral");
+        }
+
+        // Update Confidence
+        const detectionConfidence = document.getElementById("detectionConfidence");
+        const statusConfidence = document.getElementById("statusConfidence");
+        const conf = (data.detection_confidence * 100).toFixed(1);
+        detectionConfidence.textContent = data.detection_confidence > 0 ? conf + "%" : "--";
+
+        detectionConfidence.classList.remove("confidence-high", "confidence-medium", "confidence-low");
+        if (data.detection_confidence >= 0.7) {
+          detectionConfidence.classList.add("confidence-high");
+        } else if (data.detection_confidence >= 0.5) {
+          detectionConfidence.classList.add("confidence-medium");
+        } else if (data.detection_confidence > 0) {
+          detectionConfidence.classList.add("confidence-low");
+        }
+
+        // Update MQTT Status
+        const mqttStatus = document.getElementById("mqttStatus");
+        const statusMqtt = document.getElementById("statusMqtt");
+        mqttStatus.textContent = data.mqtt_connected ? "Connected" : "Disconnected";
+        statusMqtt.classList.remove("status-ok", "status-error", "status-neutral");
+        if (data.mqtt_connected) {
+          statusMqtt.classList.add("status-ok");
+        } else {
+          statusMqtt.classList.add("status-error");
+        }
+
+        // Update Statistics
+        document.getElementById("totalDetections").textContent = data.total_detections || 0;
+        document.getElementById("accessGranted").textContent = data.access_granted || 0;
+        document.getElementById("accessDenied").textContent = data.access_denied || 0;
+
+        // Update stats colors
+        const statsGranted = document.getElementById("statsGranted");
+        const statsDenied = document.getElementById("statsDenied");
+        statsGranted.classList.remove("status-ok", "status-neutral");
+        statsDenied.classList.remove("status-error", "status-neutral");
+
+        if (data.access_granted > 0) {
+          statsGranted.classList.add("status-ok");
+        } else {
+          statsGranted.classList.add("status-neutral");
+        }
+
+        if (data.access_denied > 0) {
+          statsDenied.classList.add("status-error");
+        } else {
+          statsDenied.classList.add("status-neutral");
+        }
+
+      } catch (e) {
+        console.error("Failed to fetch system status:", e);
+      }
+    }
+
+    // Initial load and refresh every 1 second
+    refreshSystemStatus();
+    setInterval(refreshSystemStatus, 1000);
   </script>
 </body>
 </html>
