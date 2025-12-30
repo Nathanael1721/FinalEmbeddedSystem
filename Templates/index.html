@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Video + Action Log</title>
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 16px; }
+    .layout { display: grid; grid-template-columns: 1.2fr 1fr; gap: 16px; align-items: start; }
+    .card { border: 1px solid #ddd; border-radius: 10px; padding: 12px; }
+    img { width: 100%; height: auto; border-radius: 8px; background: #000; }
+    table { width: 100%; border-collapse: collapse; font-size: 14px; }
+    th, td { padding: 8px; border-bottom: 1px solid #eee; vertical-align: top; }
+    th { text-align: left; position: sticky; top: 0; background: #fff; }
+    .log-wrap { max-height: 70vh; overflow: auto; }
+    .muted { color: #666; font-size: 12px; }
+  </style>
+</head>
+<body>
+  <h1>Video Stream + Action Log</h1>
+  <p class="muted">Stream: MJPEG via <code>/video_feed</code>, Log: JSON via <code>/log</code></p>
+
+  <div class="layout">
+    <div class="card">
+      <h2>Live Video</h2>
+      <div class="muted">
+        Camera:
+        <select id="cameraSelect"></select>
+        <span id="cameraStatus"></span>
+      </div>
+      <img src="/video_feed" alt="Video stream" />
+    </div>
+
+    <div class="card">
+      <h2>Actionlog</h2>
+      <div class="log-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th style="width: 60px;">Id</th>
+              <th style="width: 180px;">Timestamp</th>
+              <th>Content</th>
+            </tr>
+          </thead>
+          <tbody id="logBody">
+            <tr><td colspan="3" class="muted">Loading log…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    async function refreshLog() {
+      try {
+        const res = await fetch("/log", { cache: "no-store" });
+        const data = await res.json();
+
+        const tbody = document.getElementById("logBody");
+        tbody.innerHTML = "";
+
+        if (!data.length) {
+          tbody.innerHTML = `<tr><td colspan="3" class="muted">No entries.</td></tr>`;
+          return;
+        }
+
+        for (const row of data) {
+          const tr = document.createElement("tr");
+          tr.innerHTML = `
+            <td>${row.id}</td>
+            <td>${row.timestamp}</td>
+            <td>${escapeHtml(row.content)}</td>
+          `;
+          tbody.appendChild(tr);
+        }
+      } catch (e) {
+        // Optional: Fehler anzeigen
+      }
+    }
+
+    function escapeHtml(s) {
+      return String(s)
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#039;");
+    }
+
+    async function loadCameras() {
+      const statusEl = document.getElementById("cameraStatus");
+      try {
+        const res = await fetch("/cameras", { cache: "no-store" });
+        const data = await res.json();
+        const select = document.getElementById("cameraSelect");
+        select.innerHTML = "";
+
+        if (!data.available.length) {
+          statusEl.textContent = "No camera available.";
+          return;
+        }
+
+        for (const idx of data.available) {
+          const opt = document.createElement("option");
+          opt.value = idx;
+          opt.textContent = `Cam ${idx}`;
+          if (idx === data.current) opt.selected = true;
+          select.appendChild(opt);
+        }
+        statusEl.textContent = `Active: ${data.current}`;
+      } catch (e) {
+        statusEl.textContent = "Failed to load camera list.";
+      }
+    }
+
+    async function setCamera(idx) {
+      const statusEl = document.getElementById("cameraStatus");
+      try {
+        const res = await fetch("/set_camera", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ index: Number(idx) })
+        });
+        const data = await res.json();
+        if (data.ok) {
+          statusEl.textContent = `Active: ${data.current}`;
+        } else {
+          statusEl.textContent = `Failed: ${data.error}`;
+        }
+      } catch (e) {
+        statusEl.textContent = "Failed to set camera.";
+      }
+    }
+
+    // initial + refresh every 1s
+    loadCameras();
+    refreshLog();
+    setInterval(refreshLog, 1000);
+
+    document.getElementById("cameraSelect").addEventListener("change", (e) => {
+      setCamera(e.target.value);
+    });
+  </script>
+</body>
+</html>
