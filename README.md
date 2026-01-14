@@ -11,6 +11,17 @@ This project creates a smart parking access control system that:
 - Uses MQTT messaging for decentralized communication
 - Integrates ultrasonic sensors for distance measurement
 
+## 🖼️ Web Interface Preview
+
+![Web Interface Preview](Preview%20Web.png)
+
+The web interface provides real-time monitoring with:
+- Live video feed from the camera
+- Real-time object detection with bounding boxes
+- System status indicators (door status, detection confidence)
+- Action log showing all system events
+- Camera selection controls
+
 ## 📁 Project Structure
 
 ```
@@ -189,12 +200,83 @@ FinalEmbeddedSystem/
 
 ## 🏗️ System Architecture
 
-The system follows a distributed architecture:
+### Architecture Diagram
 
-1. **Video Capture** → **TCP Stream** → **Web Server**
-2. **MQTT Broker** → **Detection Server** → **Decision Making**
-3. **Web Interface** ← HTTP API ← **Flask App**
-4. **Hardware Control** ← MicroPython ← **Commands**
+![System Architecture](Architecture.png)
+
+The system follows a distributed architecture with the following components:
+
+1. **Video Capture Module**
+   - Captures video from local camera or TCP stream
+   - Processes frames for object detection
+   - Streams MJPEG video to web interface
+
+2. **Detection Server**
+   - Receives MQTT triggers from external sensors
+   - Performs YOLO inference on video frames
+   - Makes access control decisions based on detection results
+   - Publishes commands to control hardware
+
+3. **MQTT Communication Layer**
+   - Decentralized messaging between components
+   - Topics: `parking/trigger`, `parking/cmd`, `parking/status`
+   - Enables real-time event-driven architecture
+
+4. **Web Interface**
+   - Flask-based HTTP server providing REST APIs
+   - Real-time video streaming via MJPEG
+   - Dashboard for monitoring system status
+   - Action log with reverse chronological order
+
+5. **Hardware Control**
+   - ESP32 microcontroller running MicroPython
+   - Servo motor for gate actuation
+   - Ultrasonic sensor for distance measurement
+   - Receives commands via MQTT
+
+### System Flow
+
+```
+Camera/MQTT Trigger → Detection Worker → YOLO Inference → Decision Making
+                                                                ↓
+                                        Web Dashboard ← MQTT → Hardware Control
+```
+
+## 📊 System Flowchart
+
+![Flowchart](Flowchart.png)
+
+### Detection Flow
+
+1. **Trigger Received**
+   - External sensor detects vehicle presence
+   - MQTT trigger message sent to `parking/trigger` topic
+
+2. **Frame Capture & Analysis**
+   - System activates video stream
+   - Captures multiple frames (configurable, default: 10 frames)
+   - Runs YOLO inference on each frame
+
+3. **Detection Decision**
+   - **IF** target detected with confidence ≥ 70%:
+     - Send OPEN command via MQTT
+     - Update system status to "OPEN"
+     - Record detection in log
+     - Start 5-second cooldown before allowing close
+   - **ELSE**:
+     - Send DENIED status
+     - Keep door closed
+     - Log denial reason
+
+4. **Cooldown Period**
+   - After door opens, 5-second cooldown begins
+   - Subsequent detections during cooldown delay door close
+   - Prevents rapid open/close cycles
+
+5. **Status Updates**
+   - All events logged in reverse chronological order
+   - Real-time status available via web API
+   - Statistics tracked: total detections, access granted, denied
 
 ## 🎓 Course Information
 
