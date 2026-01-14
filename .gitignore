@@ -1,1 +1,37 @@
+# Claude Code settings
 .claude/settings.local.json
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Virtual environment
+venv/
+env/
+ENV/
+
+# Model training artifacts (keep only best.pt)
+weights/best(1).pt
+weights/last.pt
+weights/last(1).pt
+weights/*/
+!weights/best.pt
+
+# Backup and temporary files
+*.bak
+*.swp
+*~
+cleanup_clue.sh
+
+# IDE
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# OS
+.DS_Store
+Thumbs.db
