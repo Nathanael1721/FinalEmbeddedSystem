@@ -22,6 +22,18 @@ The web interface provides real-time monitoring with:
 - Action log showing all system events
 - Camera selection controls
 
+## 🎥 Video Demo
+
+Watch the system in action: **[Smart Parking Gate Demo Video](https://photos.app.goo.gl/FndP4WqsEKQpbRaV7)**
+
+The video demonstrates:
+- Real-time object detection with YOLO
+- Automatic gate opening/closing
+- MQTT communication between components
+- Web dashboard monitoring
+- Servo motor control
+- Ultrasonic sensor integration
+
 ## 📁 Project Structure
 
 ```
