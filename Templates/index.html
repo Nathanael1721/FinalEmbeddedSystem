@@ -1,0 +1,321 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Video + Action Log</title>
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 16px; }
+    .layout { display: grid; grid-template-columns: 1.2fr 1fr; gap: 16px; align-items: start; }
+    .card { border: 1px solid #ddd; border-radius: 10px; padding: 12px; }
+    img { width: 100%; height: auto; border-radius: 8px; background: #000; }
+    table { width: 100%; border-collapse: collapse; font-size: 14px; }
+    th, td { padding: 8px; border-bottom: 1px solid #eee; vertical-align: top; }
+    th { text-align: left; position: sticky; top: 0; background: #fff; }
+    .log-wrap { max-height: 70vh; overflow: auto; }
+    .muted { color: #666; font-size: 12px; }
+
+    /* Status Section Styles */
+    .status-section {
+      margin-bottom: 16px;
+    }
+    .status-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 12px;
+    }
+    .status-item {
+      background: #f8f9fa;
+      border-radius: 8px;
+      padding: 12px;
+      border-left: 4px solid #6c757d;
+    }
+    .status-item h3 {
+      margin: 0 0 6px 0;
+      font-size: 11px;
+      text-transform: uppercase;
+      color: #666;
+      letter-spacing: 0.5px;
+    }
+    .status-value {
+      margin: 0;
+      font-size: 18px;
+      font-weight: 600;
+      color: #333;
+    }
+    .status-item.door-open { border-left-color: #28a745; }
+    .status-item.door-open .status-value { color: #28a745; }
+    .status-item.door-closed { border-left-color: #dc3545; }
+    .status-item.door-closed .status-value { color: #dc3545; }
+    .status-item.status-ok { border-left-color: #28a745; }
+    .status-item.status-ok .status-value { color: #28a745; }
+    .status-item.status-error { border-left-color: #dc3545; }
+    .status-item.status-error .status-value { color: #dc3545; }
+    .status-item.status-neutral { border-left-color: #6c757d; }
+    .confidence-high { color: #28a745; }
+    .confidence-medium { color: #ffc107; }
+    .confidence-low { color: #dc3545; }
+    .timestamp { font-size: 11px; color: #888; margin-top: 4px; }
+  </style>
+</head>
+<body>
+  <h1>Video Stream + Action Log</h1>
+  <p class="muted">Stream: MJPEG via <code>/video_feed</code>, Log: JSON via <code>/log</code></p>
+
+  <div class="layout">
+    <div class="card">
+      <h2>Live Video</h2>
+      <div class="muted">
+        Camera:
+        <select id="cameraSelect"></select>
+        <span id="cameraStatus"></span>
+      </div>
+      <img src="/video_feed" alt="Video stream" />
+    </div>
+
+    <div class="card">
+      <h2>Actionlog</h2>
+
+      <!-- System Status Section -->
+      <div class="status-section">
+        <div class="status-grid">
+          <div class="status-item door-closed" id="statusDoor">
+            <h3>Door Status</h3>
+            <p class="status-value" id="doorStatus">--</p>
+          </div>
+          <div class="status-item status-neutral" id="statusDetection">
+            <h3>Last Detection</h3>
+            <p class="status-value" id="lastDetection">--</p>
+            <div class="timestamp" id="detectionTime"></div>
+          </div>
+          <div class="status-item status-neutral" id="statusConfidence">
+            <h3>Confidence</h3>
+            <p class="status-value" id="detectionConfidence">--%</p>
+          </div>
+          <div class="status-item status-neutral" id="statusMqtt">
+            <h3>MQTT Status</h3>
+            <p class="status-value" id="mqttStatus">--</p>
+          </div>
+          <div class="status-item status-neutral" id="statsTotal">
+            <h3>Total Detections</h3>
+            <p class="status-value" id="totalDetections">0</p>
+          </div>
+          <div class="status-item status-neutral" id="statsGranted">
+            <h3>Access Granted</h3>
+            <p class="status-value" id="accessGranted">0</p>
+          </div>
+          <div class="status-item status-neutral" id="statsDenied">
+            <h3>Access Denied</h3>
+            <p class="status-value" id="accessDenied">0</p>
+          </div>
+        </div>
+      </div>
+
+      <div class="log-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th style="width: 60px;">Id</th>
+              <th style="width: 180px;">Timestamp</th>
+              <th>Content</th>
+            </tr>
+          </thead>
+          <tbody id="logBody">
+            <tr><td colspan="3" class="muted">Loading log…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    async function refreshLog() {
+      try {
+        const res = await fetch("/log", { cache: "no-store" });
+        const data = await res.json();
+
+        const tbody = document.getElementById("logBody");
+        tbody.innerHTML = "";
+
+        if (!data.length) {
+          tbody.innerHTML = `<tr><td colspan="3" class="muted">No entries.</td></tr>`;
+          return;
+        }
+
+        // Display logs in reverse order (newest first)
+        for (let i = data.length - 1; i >= 0; i--) {
+          const row = data[i];
+          const tr = document.createElement("tr");
+          tr.innerHTML = `
+            <td>${row.id}</td>
+            <td>${row.timestamp}</td>
+            <td>${escapeHtml(row.content)}</td>
+          `;
+          tbody.appendChild(tr);
+        }
+      } catch (e) {
+        // Optional: Fehler anzeigen
+      }
+    }
+
+    function escapeHtml(s) {
+      return String(s)
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#039;");
+    }
+
+    async function loadCameras() {
+      const statusEl = document.getElementById("cameraStatus");
+      try {
+        const res = await fetch("/cameras", { cache: "no-store" });
+        const data = await res.json();
+        const select = document.getElementById("cameraSelect");
+        select.innerHTML = "";
+
+        if (!data.available.length) {
+          statusEl.textContent = "No camera available.";
+          return;
+        }
+
+        for (const idx of data.available) {
+          const opt = document.createElement("option");
+          opt.value = idx;
+          opt.textContent = `Cam ${idx}`;
+          if (idx === data.current) opt.selected = true;
+          select.appendChild(opt);
+        }
+        statusEl.textContent = `Active: ${data.current}`;
+      } catch (e) {
+        statusEl.textContent = "Failed to load camera list.";
+      }
+    }
+
+    async function setCamera(idx) {
+      const statusEl = document.getElementById("cameraStatus");
+      try {
+        const res = await fetch("/set_camera", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ index: Number(idx) })
+        });
+        const data = await res.json();
+        if (data.ok) {
+          statusEl.textContent = `Active: ${data.current}`;
+        } else {
+          statusEl.textContent = `Failed: ${data.error}`;
+        }
+      } catch (e) {
+        statusEl.textContent = "Failed to set camera.";
+      }
+    }
+
+    // initial + refresh every 1s
+    loadCameras();
+    refreshLog();
+    setInterval(refreshLog, 1000);
+
+    document.getElementById("cameraSelect").addEventListener("change", (e) => {
+      setCamera(e.target.value);
+    });
+
+    async function refreshSystemStatus() {
+      try {
+        const res = await fetch("/system_status", { cache: "no-store" });
+        const data = await res.json();
+
+        // Update Door Status
+        const doorStatus = document.getElementById("doorStatus");
+        const statusDoor = document.getElementById("statusDoor");
+        doorStatus.textContent = data.door_status || "--";
+        statusDoor.classList.remove("door-open", "door-closed", "status-neutral");
+        if (data.door_status === "OPEN") {
+          statusDoor.classList.add("door-open");
+        } else if (data.door_status === "CLOSED") {
+          statusDoor.classList.add("door-closed");
+        } else {
+          statusDoor.classList.add("status-neutral");
+        }
+
+        // Update Last Detection
+        const lastDetection = document.getElementById("lastDetection");
+        const detectionTime = document.getElementById("detectionTime");
+        const statusDetection = document.getElementById("statusDetection");
+        lastDetection.textContent = data.last_detection || "--";
+
+        if (data.last_detection_time) {
+          const time = new Date(data.last_detection_time);
+          detectionTime.textContent = "Last: " + time.toLocaleTimeString();
+        } else {
+          detectionTime.textContent = "";
+        }
+
+        statusDetection.classList.remove("status-ok", "status-neutral");
+        if (data.last_detection && data.last_detection !== "None") {
+          statusDetection.classList.add("status-ok");
+        } else {
+          statusDetection.classList.add("status-neutral");
+        }
+
+        // Update Confidence
+        const detectionConfidence = document.getElementById("detectionConfidence");
+        const statusConfidence = document.getElementById("statusConfidence");
+        const conf = (data.detection_confidence * 100).toFixed(1);
+        detectionConfidence.textContent = data.detection_confidence > 0 ? conf + "%" : "--";
+
+        detectionConfidence.classList.remove("confidence-high", "confidence-medium", "confidence-low");
+        if (data.detection_confidence >= 0.7) {
+          detectionConfidence.classList.add("confidence-high");
+        } else if (data.detection_confidence >= 0.5) {
+          detectionConfidence.classList.add("confidence-medium");
+        } else if (data.detection_confidence > 0) {
+          detectionConfidence.classList.add("confidence-low");
+        }
+
+        // Update MQTT Status
+        const mqttStatus = document.getElementById("mqttStatus");
+        const statusMqtt = document.getElementById("statusMqtt");
+        mqttStatus.textContent = data.mqtt_connected ? "Connected" : "Disconnected";
+        statusMqtt.classList.remove("status-ok", "status-error", "status-neutral");
+        if (data.mqtt_connected) {
+          statusMqtt.classList.add("status-ok");
+        } else {
+          statusMqtt.classList.add("status-error");
+        }
+
+        // Update Statistics
+        document.getElementById("totalDetections").textContent = data.total_detections || 0;
+        document.getElementById("accessGranted").textContent = data.access_granted || 0;
+        document.getElementById("accessDenied").textContent = data.access_denied || 0;
+
+        // Update stats colors
+        const statsGranted = document.getElementById("statsGranted");
+        const statsDenied = document.getElementById("statsDenied");
+        statsGranted.classList.remove("status-ok", "status-neutral");
+        statsDenied.classList.remove("status-error", "status-neutral");
+
+        if (data.access_granted > 0) {
+          statsGranted.classList.add("status-ok");
+        } else {
+          statsGranted.classList.add("status-neutral");
+        }
+
+        if (data.access_denied > 0) {
+          statsDenied.classList.add("status-error");
+        } else {
+          statsDenied.classList.add("status-neutral");
+        }
+
+      } catch (e) {
+        console.error("Failed to fetch system status:", e);
+      }
+    }
+
+    // Initial load and refresh every 1 second
+    refreshSystemStatus();
+    setInterval(refreshSystemStatus, 1000);
+  </script>
+</body>
+</html>
